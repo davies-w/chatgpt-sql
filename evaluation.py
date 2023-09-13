@@ -479,12 +479,16 @@ def print_scores(scores, etype):
             print("{:20} {:<20.3f} {:<20.3f} {:<20.3f} {:<20.3f} {:<20.3f}".format(type_, *this_scores))
 
 
-def evaluate(gold, predict, db_dir, etype, kmaps, db_dir2):
+def evaluate(gold, predict, quest, db_dir, etype, kmaps, db_dir2):
     with open(gold) as f:
         glist = [l.strip().split('\t') for l in f.readlines() if len(l.strip()) > 0]
 
     with open(predict) as f:
         plist = [l.strip().split('\t') for l in f.readlines() if len(l.strip()) > 0]
+
+    with open(quest) as f:
+        qlist = [l.strip() for l in f.readlines() if len(l.strip()) > 0]
+
     # plist = [("select max(Share),min(Share) from performance where Type != 'terminal'", "orchestra")]
     # glist = [("SELECT max(SHARE) ,  min(SHARE) FROM performance WHERE TYPE != 'Live final'", "orchestra")]
     evaluator = Evaluator()
@@ -503,26 +507,27 @@ def evaluate(gold, predict, db_dir, etype, kmaps, db_dir2):
 
     eval_err_num = 0
     index = 0 
-    for p, g in zip(plist, glist):
+    for p, g, q in zip(plist, glist, qlist):
         # print(index)
         index += 1
         p_str = p[0]
-        try:
-            g_str, db = g
-        except:
-            import ipdb; ipdb.set_trace()
+        #try:
+        g_str, db = g
+        #except:
+        #    import ipdb; ipdb.set_trace()
         db_name = db
         db = os.path.join(db_dir, db_name, db_name + ".sqlite")
+        #print(db)
         if db_dir2 != "":
             db2 = os.path.join(db_dir2, db_name, db_name + ".sqlite")
         # import ipdb; ipdb.set_trace()
         # db = os.path.join(db_dir, db + ".db")
         # import ipdb; ipdb.set_trace()
         schema = Schema(get_schema(db))
-        try:
-            g_sql = get_sql(schema, g_str)
-        except:
-            continue
+        #try:
+        g_sql = get_sql(schema, g_str)
+        #except:
+        #    continue
             
         hardness = evaluator.eval_hardness(g_sql)
         scores[hardness]['count'] += 1
@@ -566,8 +571,9 @@ def evaluate(gold, predict, db_dir, etype, kmaps, db_dir2):
         if etype in ["all", "exec"]:
             if db_dir2 == "":
                 db2 = db
-            exec_score = eval_exec_match(db, db2, p_str, g_str, p_sql, g_sql)
+            exec_score = eval_exec_match(db, db2, p_str, g_str, p_sql, g_sql, hardness)
             if exec_score == 0:
+                print("{} text: {}".format(hardness, q))
                 print("{} pred: {}".format(hardness,p_str))
                 print("{} gold: {}".format(hardness,g_str))
                 print("")
@@ -729,7 +735,7 @@ def result_eq(result1, result2, order_matters):
     return False
 
 
-def eval_exec_match(db, db2, p_str, g_str, pred, gold):
+def eval_exec_match(db, db2, p_str, g_str, pred, gold, difficulty):
     """
     return 1 if the values between prediction and gold are matching
     in the corresponding index. Currently not support multiple col_unit(pairs).
@@ -752,11 +758,14 @@ def eval_exec_match(db, db2, p_str, g_str, pred, gold):
     except:
         # import ipdb; ipdb.set_trace()
         return False
-    q_res = cursor.fetchall()
+    g_res = cursor.fetchall()
 
     orders_matter = 'order by' in g_str.lower()
-
-    return result_eq(p_res, q_res, order_matters=orders_matter)
+    res = result_eq(p_res, g_res, order_matters=orders_matter)
+    if not res:
+        print(f"{difficulty} pred: {str(p_res[0:10])}")
+        print(f"{difficulty} gold: {str(g_res[0:10])}")
+    return res
 
 
 # Rebuild SQL functions for value evaluation
@@ -973,6 +982,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--gold', dest='gold', type=str)
     parser.add_argument('--pred', dest='pred', type=str)
+    parser.add_argument('--quest', dest='quest', type=str)
     parser.add_argument('--db', dest='db', type=str)
     parser.add_argument('--db2', dest='db2', type=str, default="")
     parser.add_argument('--table', dest='table', type=str)
@@ -981,6 +991,7 @@ if __name__ == "__main__":
 
     gold = args.gold
     pred = args.pred
+    quest = args.quest
     db_dir = args.db
     db_dir2 = args.db2
     table = args.table
@@ -990,4 +1001,4 @@ if __name__ == "__main__":
 
     kmaps = build_foreign_key_map_from_json(table)
 
-    evaluate(gold, pred, db_dir, etype, kmaps, db_dir2)
+    evaluate(gold, pred, quest, db_dir, etype, kmaps, db_dir2)
